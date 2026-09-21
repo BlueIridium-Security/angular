@@ -224,7 +224,11 @@ export function retrieveStateFromCache(
         ? mapRequestOriginUrl(req.url, originMap)
         : req.url;
 
-    storeKey = makeCacheKey(req, requestUrl);
+    const computedKey = makeCacheKey(req, requestUrl);
+    if (computedKey === null) {
+      return null;
+    }
+    storeKey = computedKey;
   }
 
   const response = transferState.get(storeKey, null);
@@ -291,6 +295,9 @@ export function transferCacheInterceptorFn(
       ? mapRequestOriginUrl(req.url, originMap)
       : req.url;
   const storeKey = makeCacheKey(req, requestUrl);
+  if (storeKey === null) {
+    return next(req);
+  }
 
   const cachedResponse = retrieveStateFromCache(
     req,
@@ -410,15 +417,29 @@ function sortAndConcatParams(params: HttpParams | URLSearchParams): string {
 function makeCacheKey(
   request: HttpRequest<any>,
   mappedRequestUrl: string,
-): StateKey<TransferHttpResponse> {
+): StateKey<TransferHttpResponse> | null {
   const {params, method, responseType} = request;
   const encodedParams = sortAndConcatParams(params);
 
   let serializedBody = request.serializeBody();
-  if (serializedBody instanceof URLSearchParams) {
-    serializedBody = sortAndConcatParams(serializedBody);
-  } else if (typeof serializedBody !== 'string') {
+  let bodyType: string;
+  if (serializedBody === null) {
+    bodyType = 'none';
     serializedBody = '';
+  } else if (serializedBody instanceof URLSearchParams) {
+    bodyType = 'params';
+    serializedBody = sortAndConcatParams(serializedBody);
+  } else if (typeof serializedBody === 'string') {
+    bodyType = 'text';
+  } else {
+    // Do not cache bodies whose contents are not represented by this synchronous key.
+    return null;
+  }
+
+  // POST caching is opt-in. Keep absent, text, and URLSearchParams bodies distinct there without
+  // changing the keys for ordinary GET and HEAD requests.
+  if (method === 'POST') {
+    serializedBody = `${bodyType}\0${serializedBody}`;
   }
 
   // Joining with `|` lets a shifted field boundary (url `/a` + body `b|c` vs url `/a|b` + body `c`)

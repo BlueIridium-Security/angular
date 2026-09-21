@@ -926,6 +926,119 @@ describe('TransferCache', () => {
       });
     });
 
+    it('should send distinct ArrayBuffer POST bodies to the backend', () => {
+      const publicBody = new TextEncoder().encode('public').buffer;
+      const protectedBody = new TextEncoder().encode('protected').buffer;
+
+      expect(
+        makeRequestAndExpectOne('/authorize', 'allowed', {
+          method: 'POST',
+          transferCache: true,
+          body: publicBody,
+        }),
+      ).toBe('allowed');
+      expect(
+        makeRequestAndExpectOne('/authorize', 'denied', {
+          method: 'POST',
+          transferCache: true,
+          body: protectedBody,
+        }),
+      ).toBe('denied');
+    });
+
+    it('should send distinct Blob POST bodies to the backend', () => {
+      makeRequestAndExpectOne('/authorize-blob', 'allowed', {
+        method: 'POST',
+        transferCache: true,
+        body: new Blob(['public']),
+      });
+      expect(
+        makeRequestAndExpectOne('/authorize-blob', 'denied', {
+          method: 'POST',
+          transferCache: true,
+          body: new Blob(['protected']),
+        }),
+      ).toBe('denied');
+    });
+
+    it('should send distinct FormData POST bodies to the backend', () => {
+      const publicBody = new FormData();
+      publicBody.set('scope', 'public');
+      const protectedBody = new FormData();
+      protectedBody.set('scope', 'protected');
+
+      makeRequestAndExpectOne('/authorize-form', 'allowed', {
+        method: 'POST',
+        transferCache: true,
+        body: publicBody,
+      });
+      expect(
+        makeRequestAndExpectOne('/authorize-form', 'denied', {
+          method: 'POST',
+          transferCache: true,
+          body: protectedBody,
+        }),
+      ).toBe('denied');
+    });
+
+    it('should distinguish absent and empty-string POST bodies', () => {
+      makeRequestAndExpectOne('/authorize-empty', 'absent', {
+        method: 'POST',
+        transferCache: true,
+        body: null,
+      });
+      expect(
+        makeRequestAndExpectNone('/authorize-empty', 'POST', {
+          transferCache: true,
+          body: null,
+        }).body,
+      ).toBe('absent');
+      expect(
+        makeRequestAndExpectOne('/authorize-empty', 'empty-string', {
+          method: 'POST',
+          transferCache: true,
+          body: '',
+        }),
+      ).toBe('empty-string');
+    });
+
+    it('should distinguish URLSearchParams and string POST bodies', () => {
+      makeRequestAndExpectOne('/authorize-form-text', 'form', {
+        method: 'POST',
+        transferCache: true,
+        body: new URLSearchParams('scope=public'),
+      });
+      expect(
+        makeRequestAndExpectOne('/authorize-form-text', 'text', {
+          method: 'POST',
+          transferCache: true,
+          body: 'scope=public',
+        }),
+      ).toBe('text');
+    });
+
+    it('should cache typed-array POST bodies by their serialized text', () => {
+      const body = new Uint8Array([1, 2, 3]);
+      makeRequestAndExpectOne('/typed-array', 'first', {
+        method: 'POST',
+        transferCache: true,
+        body,
+      });
+      expect(
+        makeRequestAndExpectNone('/typed-array', 'POST', {
+          transferCache: true,
+          body: new Uint8Array([1, 2, 3]),
+        }).body,
+      ).toBe('first');
+      expect(
+        makeRequestAndExpectOne('/typed-array', 'second', {
+          method: 'POST',
+          transferCache: true,
+          body: new Uint8Array([4, 5, 6]),
+        }),
+      ).toBe('second');
+    });
+
     describe('caching in browser context', () => {
       beforeEach(() => {
         globalThis['ngServerMode'] = false;
